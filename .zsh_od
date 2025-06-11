@@ -1,0 +1,233 @@
+#!/bin/zsh
+# Add asdf configuration (ruby package manager)
+source "$HOME/.asdf/asdf.sh"
+fpath+=("$HOME/.asdf/completions")
+
+#Path for Rust
+export PATH="$HOME/.cargo/bin:$PATH"
+
+
+# SSH Agent Stuff
+#ssh-agent
+
+SSH_AUTH_SOCK=/tmp/ssh.sock
+
+if [ -z "$SSH_AGENT_PID" ]; then
+  SSH_AGENT_PID=$(cat /tmp/ssh.pid)
+fi
+
+if ! kill -0 $SSH_AGENT_PID &> /dev/null; then
+  rm /tmp/ssh.sock
+  eval $(ssh-agent -s -a /tmp/ssh.sock)
+  echo "$SSH_AGENT_PID" > /tmp/ssh.pid
+  ssh-add 2>/dev/null
+fi
+
+export SSH_AUTH_SOCK
+export SSH_AGENT_PID
+
+
+# AWS hours for Prompt
+
+
+function aws_sso_hours {
+  # Get the latest AWS SSO cache file
+  local cache_file=$(ls -1tr ~/.aws/sso/cache/*.json 2>/dev/null | grep -v boto | tail -n 1)
+
+  # Check if the file exists
+  if [[ -z $cache_file ]]; then
+    echo -ne "%{%F{red}%}{EXP}%{%f%}"
+    return
+  fi
+
+  # Calculate the remaining hours until expiration
+  local expires_at=$(cat "$cache_file" | jq -r '.expiresAt' 2>/dev/null | date '+%s' -f - 2>/dev/null)
+  if [[ -z $expires_at ]]; then
+    echo -ne "%{%F{red}%}{EXP}%{%f%}"
+    return
+  fi
+
+  local current_time=$(date '+%s')
+  local remaining_seconds=$((expires_at - current_time))
+  local AWS_SSO_HOURS=$((remaining_seconds / 3600))
+
+  # Handle different expiration cases
+  if [[ $AWS_SSO_HOURS -lt 0 ]]; then
+    echo -ne "%{%F{red}%}{EXP}%{%f%}"
+  elif [[ $AWS_SSO_HOURS -lt 2 ]]; then
+    echo -ne "%{%F{red}%}{$AWS_SSO_HOURS h}%{%f%}"
+  else
+    echo -ne "%{%F{green}%}{$AWS_SSO_HOURS h}%{%f%}"
+  fi
+}
+
+
+# GIT Status
+parse_git_branch() {
+  ref=$(git symbolic-ref HEAD 2> /dev/null)
+  if [ ! -z "$ref" ]; then
+    echo "${ref#refs/heads/}"
+  fi
+}
+
+get_git_branch() {
+      git symbolic-ref --short HEAD 2>/dev/null
+}
+
+
+git_branch_display() {
+    local branch=$(get_git_branch)
+    if [[ $branch == "live" ]]; then
+        echo "%F{red}LIVE%f"
+    elif [[ -n $branch ]]; then
+        echo "%F{cyan}($branch)%f"
+    fi
+}
+
+
+
+# Aliases
+alias stool="stoolc bundle exec exe/stool \$@"
+alias ostool="ostoolc exe/stool \$@"
+alias awslogin="BROWSER=/bin/echo aws sso login && date >> ~/awslogin.log"
+alias fixmytime="sudo ntpdate -u pool.ntp.org"
+alias ready-enable="fixmytime && docker pull harbor.psre.overdrive.com/readiverse/stool:latest && awslogin"
+alias startup="~/.scripts/startup.sh"
+alias stoolc="docker run -it --rm \
+        -v $PWD:$PWD \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        -v /home/dev/wdir/stool/.stool.cfg:/stool/.stool.cfg \
+        -v ~/.aws:/root/.aws \
+        -v ~/.stool.mem:/.stool.mem \
+        -v /home/dev/wdir/stool/spec:/stool/spec \
+        -v /dev/shm:/dev/shm \
+        -v /home/dev/wdir/odr-ansible-playbooks:/odr-ansible-playbooks \
+        -v /home/dev/wdir/odramis:/odramis \
+        -v /home/dev/wdir/odrinfrastructure:/odrinfrastructure \
+        -v $(dirname $SSH_AUTH_SOCK):$(dirname $SSH_AUTH_SOCK) \
+        -v /home/dev/wdir/odr-ansible-playbooks:/odr-ansible-playbooks \
+        -v /home/dev/wdir/odramis:/odramis \
+        -v /home/dev/wdir/odrinfrastructure:/odrinfrastructure \
+        -v $(dirname $SSH_AUTH_SOCK):$(dirname $SSH_AUTH_SOCK) \
+        -e SSH_AUTH_SOCK=$SSH_AUTH_SOCK \
+        harbor.psre.overdrive.com/readiverse/stool:latest"
+
+alias stoold="docker run -it --rm \
+        -v /home/dev/.bundle/config:/root/.bundle/config \
+        -v /home/dev/wdir/libstool:/libstool \
+        -v /home/dev/wdir/stool:/stool \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        -v /home/dev/wdir/stool/.stool.cfg:/stool/.stool.cfg \
+        -v ~/.aws:/root/.aws \
+        -v ~/.stool.mem:/.stool.mem \
+        -v /home/dev/wdir/stool/spec:/stool/spec \
+        -v /dev/shm:/dev/shm \
+        -v /home/dev/wdir/odr-ansible-playbooks:/odr-ansible-playbooks \
+        -v /home/dev/wdir/odramis:/odramis \
+        -v /home/dev/wdir/odrinfrastructure:/odrinfrastructure \
+        -v $(dirname $SSH_AUTH_SOCK):$(dirname $SSH_AUTH_SOCK) \
+        -e SSH_AUTH_SOCK=$SSH_AUTH_SOCK \
+        harbor.psre.overdrive.com/readiverse/stool:latest "
+
+alias stooldev="stoold /bin/bash -c 'git config --global --add safe.directory /libstool; BUNDLE_GEMFILE=Gemfile bundle install; BUNDLE_GEMFILE=Gemfile /bin/bash'"
+
+
+
+# loki alias
+alias log-dev="logcli --addr=\"http://10.0.13.153:8080\" \$@"
+alias logq-dev="log-dev query --forward --parallel-duration 15m --exclude-label filename "
+alias log="logcli --addr=\"https://loki.svc.overdrive.com\" \$@"
+alias logiq="log instant-query --exclude-label filename "
+alias logq="log query --forward --parallel-duration 15m --exclude-label filename "
+
+
+#zstyle ':completion:*:descriptions' format '%BCompleting %d:%b'
+zstyle ':autocomplete:*' suggestions false
+
+
+test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh" || true
+
+
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+
+
+function notify_when_done() {
+    "$@" && say "Command completed"
+}
+alias alert="notify_when_done"
+
+
+######################## --- Personal Work --- ########################
+
+
+# --- DB Toggle Shortcuts ---
+use_dev_db() {
+  export PGHOST=localhost
+  export PGPORT=5432
+  export PGUSER=dev
+  export PGPASSWORD=2313
+  export PGDATABASE=dudley_development
+  echo "Switched to DEV DB"
+}
+use_prod_db() {
+  export PGHOST=localhost
+  export PGPORT=5435
+  export PGUSER=dudley
+  export PGDATABASE=dudley_production
+  export PGPASSWORD=IgZqsMApiJwQyAOS6Kh6gCtgm5pCM09k
+  export RAILS_ENV=production
+  echo "RAILS_ENV=production"
+  echo "Switched to PROD DB"
+}
+
+# General Utilities
+alias grep='grep --color'
+alias f='find . | grep'
+alias ls="ls -a --group-directories-first --color=auto"
+alias lss="ls -1a --group-directories-first --color=auto"
+alias reboot="sudo reboot -f"
+alias e="ranger"
+alias w="cd ~/wdir/"
+alias tr="trash"
+alias aux="cd ~/wdir/odrinfrastructure/aux"
+# Personal Tools & Scripts
+alias addserver="bash ~/add-server.sh"
+alias vb="nvim ~/wdir/odr-ansible-playbooks/roles/baseline/templates/jjindra.bashrc.j2"
+alias grcl="find '/home/dev/wdir/libstool/svg_graphs' -maxdepth 1 -type f -name '*cluster_*' -exec trash {} \;"
+alias du="docker pull harbor.psre.overdrive.com/readiverse/stool:latest"
+
+# Development – Rails / Pry
+alias vr="bundle exec rails c"
+alias br="bin/rails"
+alias controller="br generate controller"
+alias bep="bundle exec pry"
+alias rt="RAILS_ENV=production rails server -p 3002"
+
+# Git & GitHub
+alias commitss="git log origin/live..HEAD --oneline"
+alias prr="gh pr create --fill"
+alias cleanheads="git branch --merged | grep -v '\*' | xargs git branch -d"
+
+# Tmux
+alias tmux-kill="tmux kill-server"
+alias st="tmux source-file ~/.tmux.conf"
+
+# Networking / IP
+alias ip='ifconfig -a | egrep -A 7 "^enp0s1" | grep inet | grep -oE "((1?[0-9][0-9]?|2[0-4][0-9]|25[0-5])\.){3}(1?[0-9][0-9]?|2[0-4][0-9]|25[0-5])" | head -n 1'
+alias myip="curl -s http://checkip.dyndns.org/ | sed 's/[a-zA-Z<>/ :]//g'"
+
+# Mount / Unmount
+alias ms="bash ~/.scripts/mount.sh"
+alias ums="bash ~/.scripts/unmount.sh"
+
+# SSH / Tunnels
+alias dudley_tunnel="ssh -L5435:localhost:5433 -l jjindra 10.0.133.37"
+
+# Environment Toggle
+alias dev='unset RAILS_ENV && export PGHOST=localhost PGPORT=5432 PGUSER=dev PGPASSWORD=2313 PGDATABASE=dudley_development && echo "Switched to development"'
+
+# Display Settings
+alias set_display="xrandr --newmode '2560x1440_60.00' 312.25 2560 2752 3024 3488 1440 1443 1448 1493 -hsync +vsync && xrandr --addmode Virtual-1 '2560x1440_60.00' && xrandr --output Virtual-1 --mode '2560x1440_60.00'"
+
